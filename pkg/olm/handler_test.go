@@ -60,6 +60,54 @@ func TestOLMHandler_catalogItemsHandler(t *testing.T) {
 	})
 }
 
+func TestOLMHandler_catalogItemHandler(t *testing.T) {
+	t.Run("should return a single catalog item", func(t *testing.T) {
+		items := []ConsoleCatalogItem{{Name: "test-item", Catalog: "test-catalog"}}
+		c := cache.New(5*time.Minute, 10*time.Minute)
+		c.Set(getCatalogItemsKey("test-catalog"), items, cache.NoExpiration)
+		service := NewCatalogService(&http.Client{}, nil, c)
+		service.index["test-catalog"] = struct{}{}
+		handler := NewOLMHandler("", nil, service)
+
+		req := httptest.NewRequest("GET", "/api/olm/catalog-items/test-catalog/test-item", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		var returnedItem ConsoleCatalogItem
+		err := json.Unmarshal(rr.Body.Bytes(), &returnedItem)
+		require.NoError(t, err)
+		assert.Equal(t, items[0], returnedItem)
+	})
+
+	t.Run("should return 404 when the item is not found", func(t *testing.T) {
+		c := cache.New(5*time.Minute, 10*time.Minute)
+		c.Set(getCatalogItemsKey("test-catalog"), []ConsoleCatalogItem{}, cache.NoExpiration)
+		service := NewCatalogService(&http.Client{}, nil, c)
+		service.index["test-catalog"] = struct{}{}
+		handler := NewOLMHandler("", nil, service)
+
+		req := httptest.NewRequest("GET", "/api/olm/catalog-items/test-catalog/missing-item", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+	})
+
+	t.Run("should return 405 for unsupported methods", func(t *testing.T) {
+		c := cache.New(5*time.Minute, 10*time.Minute)
+		service := NewCatalogService(&http.Client{}, nil, c)
+		handler := NewOLMHandler("", nil, service)
+
+		req := httptest.NewRequest("POST", "/api/olm/catalog-items/test-catalog/test-item", nil)
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusMethodNotAllowed, rr.Code)
+	})
+}
+
 func TestOLMHandler_catalogdMetasHandler(t *testing.T) {
 	t.Run("should return metas from catalogd", func(t *testing.T) {
 		// Create a mock catalogd server
